@@ -60,6 +60,15 @@ app.post('/send', async (req, res) => {
     return res.status(500).json({ error: 'fcm_error', detail: err.toString() });
   }
 });
+app.post("/test", (req, res) => {
+  console.log("📩 Message từ App A:", req.body);
+
+  res.json({
+    ok: true,
+    received: req.body,
+    time: new Date().toISOString()
+  });
+});
 
 // debug: list tokens
 app.get('/tokens', (req, res) => res.json(tokens));
