@@ -1,77 +1,48 @@
-// server.js
-require('dotenv').config();
-const express = require('express');
-const admin = require('firebase-admin');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const path = require('path');
-
-// đường dẫn tới service account json (đặt cùng thư mục)
-const serviceAccountPath = process.env.SERVICE_ACCOUNT_PATH || path.join(__dirname, 'service-account.json');
-
-admin.initializeApp({
-  credential: admin.credential.cert(require(serviceAccountPath))
-});
+const express = require("express");
+const admin = require("firebase-admin");
 
 const app = express();
-app.use(bodyParser.json());
-app.use(cors());
+app.use(express.json());
 
-// Lưu token tạm (cho demo). Production: dùng DB (Redis/MySQL/MongoDB).
-const tokens = {}; // tokens['appA'] = 'fcm_token_string'
+// LOAD SERVICE ACCOUNT TỪ ENV
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
-app.post('/register', (req, res) => {
-  try {
-    const { appId, token } = req.body;
-    if (!appId || !token) return res.status(400).json({ error: 'appId and token required' });
-    tokens[appId] = token;
-    console.log('REGISTER', appId, token);
-    return res.json({ status: 'ok', appId });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: 'server_error' });
-  }
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
 });
 
-// send payload: { fromApp: 'appA', toApp: 'appB' (optional), title, body, data (optional) }
-app.post('/send', async (req, res) => {
+const tokens = {};
+
+app.post("/register", (req, res) => {
+  const { appId, token } = req.body;
+  tokens[appId] = token;
+  res.json({ ok: true });
+});
+
+app.post("/send", async (req, res) => {
+  const { fromApp, body } = req.body;
+  const target = fromApp === "appA" ? "appB" : "appA";
+  const token = tokens[target];
+
+  if (!token) {
+    return res.status(400).json({ error: "target not registered" });
+  }
+
+  const message = {
+    token,
+    notification: {
+      title: "Push từ Fly.io",
+      body
+    }
+  };
+
   try {
-    const { fromApp, toApp, title, body, data } = req.body;
-    if (!fromApp) return res.status(400).json({ error: 'fromApp required' });
-
-    const targetApp = toApp || (fromApp === 'appA' ? 'appB' : 'appA');
-    const token = tokens[targetApp];
-    if (!token) return res.status(400).json({ error: 'target token not registered', targetApp });
-
-    const message = {
-      token: token,
-      notification: {
-        title: title || `Message from ${fromApp}`,
-        body: body || ''
-      },
-      data: data || {}
-    };
-
     const response = await admin.messaging().send(message);
-    console.log('SENT', response);
-    return res.json({ status: 'sent', messageId: response });
-  } catch (err) {
-    console.error('FCM SEND ERROR', err);
-    return res.status(500).json({ error: 'fcm_error', detail: err.toString() });
+    res.json({ success: true, response });
+  } catch (e) {
+    res.status(500).json({ error: e.toString() });
   }
 });
-app.post("/test", (req, res) => {
-  console.log("📩 Message từ App A:", req.body);
-
-  res.json({
-    ok: true,
-    received: req.body,
-    time: new Date().toISOString()
-  });
-});
-
-// debug: list tokens
-app.get('/tokens', (req, res) => res.json(tokens));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server listens on ${PORT}`));
+app.listen(PORT, () => console.log("Server running on", PORT));
